@@ -6,7 +6,7 @@ if [ $# -eq 0 ]; then
 fi
 
 BASEDIR=$(dirname "$0")
-TOOLS=("archive.sh" "crt.sh" "ht.sh" "vt.sh")
+TOOLS=("subfinder.sh")
 
 for tool in "${TOOLS[@]}"; do
 	if [ -x "$BASEDIR/$tool" ]; then
