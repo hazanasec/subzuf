@@ -28,7 +28,7 @@ limitations under the License.
 
 __author__ = 'Marcin Ulikowski'
 __email__ = 'marcin@ulikowski.pl'
-__version__ = '2022.11.0'
+__version__ = '2022.12.0'
 
 
 import sys
@@ -135,10 +135,7 @@ class QResolver():
 
 	@staticmethod
 	def _build_query(fqdn, rdtype=RDTYPE_A):
-		j = lambda x: chr(len(x)) + x
-		l = fqdn.split('.')
-		qname = ''.join(map(j, l)).encode()
-
+		qname = b''.join([len(x).to_bytes(1, 'big') + x for x in fqdn.encode('idna').split(b'.')])
 		return b''.join([b'\x19\x86\x01\x00\x00\x01\x00\x00\x00\x00\x00\x01',
 			qname,
 			b'\x00',
@@ -166,7 +163,7 @@ class QResolver():
 				break
 			else:
 				label = data[i+1: i+1+b]
-				labels.append(label.decode())
+				labels.append(label.decode('idna'))
 				i += b
 
 			i += 1
@@ -185,20 +182,24 @@ class QResolver():
 		while True:
 			rl = reader.read(1)[0]
 			if rl:
-				rn.append(reader.read(rl).decode())
+				rn.append(reader.read(rl))
 			else:
 				reader.skip(4)
 				break
 
-		rname = '.'.join(rn)
+		rname = b'.'.join(rn).decode('idna')
 		if qname != rname:
 			raise DNSException('Inconsistent DNS query and response: {} <> {}'.format(qname, rname))
 
 		flags = to_int(header[2:4])
 		rcode = flags & 0x0003
 
+		answer_rr = to_int(header[6:8])
+
 		if rcode == cls.RCODE_NXDOMAIN:
-			raise NXDOMAIN('Domain name does not exist: {}'.format(qname))
+			# ignore NXDOMAIN if answer is present
+			if answer_rr == 0:
+				raise NXDOMAIN('Domain name does not exist: {}'.format(qname))
 
 		elif rcode == cls.RCODE_SERVFAIL:
 			raise SERVFAIL('Server failed to complete request: {}'.format(qname))
@@ -217,8 +218,6 @@ class QResolver():
 			cls.RDTYPE_CNAME: 'cname',
 			cls.RDTYPE_PTR: 'ptr',
 			}
-
-		answer_rr = to_int(header[6:8])
 
 		for _ in range(answer_rr):
 			reader.skip(2)
@@ -365,7 +364,6 @@ class Fuzzer():
 			else:
 				self._prep(item)
 
-
 	def mutations(self):
 		for sub in self.subdomains:
 			yield '.'.join([sub, self.domain])
@@ -449,7 +447,7 @@ def run():
 
 	if not domain:
 		fatal('domain name is required')
-	args.domain = domain[0].encode('idna').decode()
+	args.domain = domain[0]
 
 	for opt, val in opts:
 		if opt == '--input':
@@ -626,7 +624,7 @@ def run():
 				except Exception:
 					errors += 1
 				else:
-					if args.wildcard == 'filter':
+					if args.wildcard == 'filter' and not (res.servfail or res.refused):
 						if wildcards.get(to_wild(res.domain)) != res.a:
 							exist.add(res)
 					else:
